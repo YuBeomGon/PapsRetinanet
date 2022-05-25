@@ -9,7 +9,7 @@ from .coco_eval import CocoEvaluator
 from .coco_utils import get_coco_api_from_dataset
 
 
-def train_one_epoch(self, optimizer, epoch, scaler=None):
+def train_one_epoch(self, optimizer, epoch, scheduler, scaler=None):
     self.model.train()
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter("lr", utils.SmoothedValue(window_size=1, fmt="{value:.6f}"))
@@ -34,15 +34,9 @@ def train_one_epoch(self, optimizer, epoch, scaler=None):
             sys.exit(1)
 
         optimizer.zero_grad()
-        if scaler is not None:
-            # need to check, but in pl, amp is done easily by setting flag
-            pass
-            # scaler.scale(losses).backward()
-            # scaler.step(optimizer)
-            # scaler.update()
-        else:
-            self.backward(losses)
-            optimizer.step()
+        self.backward(losses)
+        optimizer.step()
+        scheduler.step()
 
         metric_logger.update(loss=losses_reduced, **loss_dict_reduced)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
