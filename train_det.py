@@ -51,7 +51,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                     help='model architecture: (default: resnet18)')
 parser.add_argument('-j', '--workers', default=2, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
-parser.add_argument('--epochs', default=90, type=int, metavar='N',
+parser.add_argument('--epochs', default=15, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('-b', '--batch-size', default=4, type=int,
                     metavar='N',
@@ -78,7 +78,7 @@ parser.add_argument('--num_classes', default=1, type=int, help='number of classe
 # parser.add_argument('--drop_last', default=False, type=bool, help='drop or not on every end of epoch or groups')
 
 parser.add_argument('--pretrained', default=False, type=bool, help='set True if using pretrained weights')
-parser.add_argument('--saved_dir', default='./saved_models/detection', type=str, help='directory for model checkpoint')
+parser.add_argument('--output_dir', default='./saved_models/detection', type=str, help='directory for model checkpoint')
 
 
 class PapsDetModel(LightningLite) :
@@ -96,9 +96,8 @@ class PapsDetModel(LightningLite) :
         self.out_channels = 256
         self.epochs = args.epochs
         self.arch = args.arch
+        self.output_dir = args.output_dir
 
-        # self.backbone = PapsBackboneWithFPN('swin_base_patch4_window7_224', self.out_channels)
-        # self.backbone = PapsBackboneWithFPN('resnet50', self.out_channels)
         self.backbone = PapsBackboneWithFPN(self.arch, self.out_channels)
         
         # including background class
@@ -144,32 +143,38 @@ class PapsDetModel(LightningLite) :
 
         self.init(args)
         self.SetDataLoader()
+        self.fit()
         
+        
+    def fit(self) :
+        optimizer, scheduler = self.configure_optimizers()
+        self.model, optimizer = self.setup(self.model, optimizer)         
+        
+        for epoch in range(1, self.epochs) :
+            self.model.train()
+            train_one_epoch(self, optimizer, epoch, scheduler, scaler=None)
+            # scheduler.step()
+
+            # if epoch > 20 and epoch % 5 == 0 :
+            evaluate(self.model, self.test_loader)
+            
+            if self.output_dir:
+                self.save(self.model.state_dict(), os.path.join(self.output_dir, f"model_{epoch}.pth"))
+                self.save(self.model.state_dict(), os.path.join(self.output_dir, "best_model.pth"))
+            
+    def configure_optimizers(self) :
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, self.model.parameters()), lr=self.lr)
-        # optimizer = optim.SGD(filter(lambda p: p.requires_grad, self.model.parameters()), 
-                              # lr=self.lr, momentum=self.momentum, weight_decay=self.weight_decay)
-        
-        self.model, optimizer = self.setup(self.model, optimizer) 
-        
-        # scheduler = lr_scheduler.LambdaLR(optimizer, lambda epoch : 0.1 **(epoch //30))      
         scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, 
                                                         epochs              = self.epochs, 
                                                         steps_per_epoch     = len(self.train_loader),
                                                         max_lr              = self.lr, 
                                                         pct_start           = 0.1, 
                                                         div_factor          = 100, 
-                                                        final_div_factor    = 2e+4)
+                                                        final_div_factor    = 2e+4)   
         
-        for epoch in range(1, self.epochs) :
-            self.model.train()
-            train_one_epoch(self, optimizer, epoch, scaler=None)
-            scheduler.step()
-
-            # if epoch > 20 and epoch % 5 == 0 :
-            evaluate(self.model, self.test_loader)
-
-
-
+        # scheduler = {'scheduler': scheduler, 'interval': 'step'}
+        
+        return optimizer, scheduler
 
 if __name__ == '__main__' :
     args = parser.parse_args() 
