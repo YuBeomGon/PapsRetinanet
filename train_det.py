@@ -159,7 +159,8 @@ class PapsDetModel(LightningLite) :
             evaluate(self.model, self.test_loader)
             
             if self.output_dir:
-                self.save(self.model.state_dict(), os.path.join(self.output_dir, f"/model_{epoch}.pth"))
+                self.save(self.model.state_dict(), os.path.join(self.output_dir, f"model_{epoch}.pth"))
+                self.save(self.model.state_dict(), os.path.join(self.output_dir, "best_model.pth"))
             
     def configure_optimizers(self) :
         optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, self.model.parameters()), lr=self.lr)
