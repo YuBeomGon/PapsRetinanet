@@ -38,7 +38,7 @@ from utils.collate import collate_fn
 
 from models.detection.backbone import PapsBackboneWithFPN
 # from vision.torchvision.models.detection.retinanet import RetinaNet
-from models.detection.retinanet import PapsRetinaNet
+from models.detection.retinanet import PapsRetinaNet, RetinaNetMultiHead
 from det_utils.engine import train_one_epoch, evaluate
 
 # import custom_models
@@ -53,7 +53,7 @@ parser.add_argument('-j', '--workers', default=2, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('--epochs', default=90, type=int, metavar='N',
                     help='number of total epochs to run')
-parser.add_argument('-b', '--batch-size', default=4, type=int,
+parser.add_argument('-b', '--batch-size', default=2, type=int,
                     metavar='N',
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
@@ -73,7 +73,7 @@ parser.add_argument('--accelerator', '--accelerator', default='gpu', type=str, h
 
 parser.add_argument('--devices', '--devices', default=4, type=int, help='number of gpus, default 2')
 parser.add_argument('--img_size', default=400, type=int, help='input image resolution in swin models')
-parser.add_argument('--num_classes', default=1, type=int, help='number of classes')
+parser.add_argument('--num_classes', default=[1, 5, 2], type=tuple, help='number of classes')
 # parser.add_argument('--groups', default=3, type=int, help='number of groups of data')
 # parser.add_argument('--drop_last', default=False, type=bool, help='drop or not on every end of epoch or groups')
 
@@ -92,7 +92,9 @@ class PapsDetModel(LightningLite) :
         self.weight_decay = args.weight_decay
         self.batch_size = args.batch_size
         self.workers = args.workers
-        self.num_classes = args.num_classes
+        
+        # add background class
+        self.num_classes = [c + 1 for c in args.num_classes]
         self.out_channels = 256
         self.epochs = args.epochs
         self.arch = args.arch
@@ -102,7 +104,7 @@ class PapsDetModel(LightningLite) :
         self.backbone = PapsBackboneWithFPN(self.arch, self.out_channels)
         
         # including background class
-        self.model = PapsRetinaNet(self.backbone, num_classes=self.num_classes + 1, anchor_generator=None)
+        self.model = PapsRetinaNet(self.backbone, num_classes=self.num_classes, anchor_generator=None)
 
         # self.save_hyperparameters()
         self.train_transforms = train_transforms

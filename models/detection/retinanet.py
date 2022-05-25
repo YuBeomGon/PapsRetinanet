@@ -7,10 +7,93 @@ import timm
 
 from torchvision.ops.feature_pyramid_network import FeaturePyramidNetwork, LastLevelMaxPool, ExtraFPNBlock, LastLevelP6P7
 from torchvision.ops.misc import FrozenBatchNorm2d
-from torchvision.models.detection.retinanet import RetinaNet
+from torchvision.models.detection.retinanet import RetinaNet, RetinaNetHead, RetinaNetClassificationHead, RetinaNetRegressionHead
+from torchvision.models.detection.anchor_utils import AnchorGenerator
+from torchvision.ops import sigmoid_focal_loss
 from utils.dataset import MAX_IMAGE_SIZE
 
 from .backbone import PapsBackboneWithFPN
+
+def _sum(x: List[Tensor]) -> Tensor:
+    res = x[0]
+    for i in x[1:]:
+        res = res + i
+    return res
+
+class RetinaNetClsHead(RetinaNetClassificationHead):
+    
+    def __init__(self, in_channels, num_anchors, num_classes, prior_probability=0.01):
+        super().__init__(in_channels, num_anchors, num_classes, prior_probability=prior_probability)
+        
+    def compute_loss(self, targets, head_outputs, matched_idxs, head_name='cls_logits', target_name='labels'):
+        # type: (List[Dict[str, Tensor]], Dict[str, Tensor], List[Tensor]) -> Tensor
+        losses = []
+
+        cls_logits = head_outputs[head_name]
+
+        for targets_per_image, cls_logits_per_image, matched_idxs_per_image in zip(targets, cls_logits, matched_idxs):
+            # determine only the foreground
+            foreground_idxs_per_image = matched_idxs_per_image >= 0
+            num_foreground = foreground_idxs_per_image.sum()
+
+            # create the target classification
+            gt_classes_target = torch.zeros_like(cls_logits_per_image)
+            gt_classes_target[
+                foreground_idxs_per_image,
+                targets_per_image[target_name][matched_idxs_per_image[foreground_idxs_per_image]],
+            ] = 1.0
+
+            # find indices for which anchors should be ignored
+            valid_idxs_per_image = matched_idxs_per_image != self.BETWEEN_THRESHOLDS
+
+            # compute the classification loss
+            losses.append(
+                sigmoid_focal_loss(
+                    cls_logits_per_image[valid_idxs_per_image],
+                    gt_classes_target[valid_idxs_per_image],
+                    reduction="sum",
+                )
+                / max(1, num_foreground)
+            )
+
+        return _sum(losses) / len(targets)    
+
+class RetinaNetMultiHead(nn.Module) :
+    """
+    A regression and classification head for use in RetinaNet.
+
+    Args:
+        in_channels (int): number of channels of the input feature
+        num_anchors (int): number of anchors to be predicted
+        num_classes (int): number of classes to be predicted
+    """
+
+    def __init__(self, in_channels, num_anchors, num_classes):
+        super().__init__()
+        self.classification_head = RetinaNetClsHead(in_channels, num_anchors, num_classes[0])
+        self.classification_head1 = RetinaNetClsHead(in_channels, num_anchors, num_classes[1])
+        self.classification_head2 = RetinaNetClsHead(in_channels, num_anchors, num_classes[2])
+        self.regression_head = RetinaNetRegressionHead(in_channels, num_anchors)
+
+    def compute_loss(self, targets, head_outputs, anchors, matched_idxs):
+        # type: (List[Dict[str, Tensor]], Dict[str, Tensor], List[Tensor], List[Tensor]) -> Dict[str, Tensor]
+        return {
+            "cls": self.classification_head.compute_loss(targets, head_outputs, matched_idxs, 
+                                                                   head_name="cls_logits", target_name='labels'),
+            "cls_five": self.classification_head1.compute_loss(targets, head_outputs, matched_idxs,
+                                                                    head_name="cls_logits_five", target_name='labels_five'),
+            "cls_hpv": self.classification_head2.compute_loss(targets, head_outputs, matched_idxs,
+                                                                     head_name="cls_logits_hpv", target_name='labels_hpv'),
+            "bbox_regression": self.regression_head.compute_loss(targets, head_outputs, anchors, matched_idxs),
+        }
+
+    def forward(self, x):
+        # type: (List[Tensor]) -> Dict[str, Tensor]
+        return {"cls_logits": self.classification_head(x), 
+                "cls_logits_five": self.classification_head1(x),
+                "cls_logits_hpv": self.classification_head2(x),
+                "bbox_regression": self.regression_head(x)}
+    
 
 class PapsRetinaNet(RetinaNet):
     def __init__(
@@ -32,7 +115,15 @@ class PapsRetinaNet(RetinaNet):
         fg_iou_thresh=0.5,
         bg_iou_thresh=0.4,
         topk_candidates=1000,
-    ):    
+    ):   
+
+        if anchor_generator is None:
+            anchor_sizes = tuple((x, int(x * 2 ** (1.0 / 3)), int(x * 2 ** (2.0 / 3))) for x in [32, 64, 128, 256, 512])
+            aspect_ratios = ((0.5, 1.0, 2.0),) * len(anchor_sizes)
+            anchor_generator = AnchorGenerator(anchor_sizes, aspect_ratios)    
+        if head is None:
+            head = RetinaNetMultiHead(backbone.out_channels, anchor_generator.num_anchors_per_location()[0], num_classes)
+            
         super().__init__(
             backbone,
             num_classes,
@@ -53,107 +144,8 @@ class PapsRetinaNet(RetinaNet):
             topk_candidates=topk_candidates, 
         )
         
-    def forward(self, images, targets=None):
-        # type: (List[Tensor], Optional[List[Dict[str, Tensor]]]) -> Tuple[Dict[str, Tensor], List[Dict[str, Tensor]]]
-        """
-        Args:
-            images (list[Tensor]): images to be processed
-            targets (list[Dict[Tensor]]): ground-truth boxes present in the image (optional)
-
-        Returns:
-            result (list[BoxList] or dict[Tensor]): the output from the model.
-                During training, it returns a dict[Tensor] which contains the losses.
-                During testing, it returns list[BoxList] contains additional fields
-                like `scores`, `labels` and `mask` (for Mask R-CNN models).
-
-        """
-        if self.training and targets is None:
-            raise ValueError("In training mode, targets should be passed")
-
-        if self.training:
-            assert targets is not None
-            for target in targets:
-                boxes = target["boxes"]
-                if isinstance(boxes, torch.Tensor):
-                    if len(boxes.shape) != 2 or boxes.shape[-1] != 4:
-                        raise ValueError(
-                            "Expected target boxes to be a tensor" "of shape [N, 4], got {:}.".format(boxes.shape)
-                        )
-                else:
-                    raise ValueError("Expected target boxes to be of type " "Tensor, got {:}.".format(type(boxes)))
-
-        # get the original image sizes
-        original_image_sizes: List[Tuple[int, int]] = []
-        for img in images:
-            val = img.shape[-2:]
-            assert len(val) == 2
-            original_image_sizes.append((val[0], val[1]))
-
-        # transform the input
-        images, targets = self.transform(images, targets)
-
-        # Check for degenerate boxes
-        # TODO: Move this to a function
-        if targets is not None:
-            for target_idx, target in enumerate(targets):
-                boxes = target["boxes"]
-                degenerate_boxes = boxes[:, 2:] <= boxes[:, :2]
-                if degenerate_boxes.any():
-                    # print the first degenerate box
-                    bb_idx = torch.where(degenerate_boxes.any(dim=1))[0][0]
-                    degen_bb: List[float] = boxes[bb_idx].tolist()
-                    raise ValueError(
-                        "All bounding boxes should have positive height and width."
-                        " Found invalid box {} for target at index {}.".format(degen_bb, target_idx)
-                    )
-
-        # get the features from the backbone
-        features = self.backbone(images.tensors)
         
-        if isinstance(features, torch.Tensor):
-            features = OrderedDict([("0", features)])
+        
 
-        # TODO: Do we want a list or a dict?
-        features = list(features.values())
-
-        # compute the retinanet heads outputs using the features
-        head_outputs = self.head(features)
-
-        # create the set of anchors
-        anchors = self.anchor_generator(images, features)
-
-        losses = {}
-        detections: List[Dict[str, Tensor]] = []
-        if self.training:
-            assert targets is not None
-
-            # compute the losses
-            losses = self.compute_loss(targets, head_outputs, anchors)
-        else:
-            # recover level sizes
-            num_anchors_per_level = [x.size(2) * x.size(3) for x in features]
-            HW = 0
-            for v in num_anchors_per_level:
-                HW += v
-            HWA = head_outputs["cls_logits"].size(1)
-            A = HWA // HW
-            num_anchors_per_level = [hw * A for hw in num_anchors_per_level]
-
-            # split outputs per level
-            split_head_outputs: Dict[str, List[Tensor]] = {}
-            for k in head_outputs:
-                split_head_outputs[k] = list(head_outputs[k].split(num_anchors_per_level, dim=1))
-            split_anchors = [list(a.split(num_anchors_per_level)) for a in anchors]
-
-            # compute the detections
-            detections = self.postprocess_detections(split_head_outputs, split_anchors, images.image_sizes)
-            detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)
-
-        if torch.jit.is_scripting():
-            if not self._has_warned:
-                warnings.warn("RetinaNet always returns a (Losses, Detections) tuple in scripting")
-                self._has_warned = True
-            return losses, detections
-        return self.eager_outputs(losses, detections)
 
             

@@ -44,17 +44,20 @@ train_transforms = A.Compose([
         A.transforms.RGBShift(r_shift_limit=20, g_shift_limit=20, b_shift_limit=20, p=0.8)
         ]
     )
-], p=1.0,  bbox_params=A.BboxParams(format='coco', min_area=0, min_visibility=0.8, label_fields=['labels'])) 
+], p=1.0,  bbox_params=A.BboxParams(format='coco', min_area=0, min_visibility=0.8, 
+                                    label_fields=['labels_one', 'labels_five', 'labels_hpv'])) 
 
 val_transforms = A.Compose([
     A.Resize(MAX_IMAGE_SIZE, MAX_IMAGE_SIZE, p=1),
     A.HorizontalFlip(p=.001),
-], p=1.0,  bbox_params=A.BboxParams(format='coco', min_area=0, min_visibility=0.8, label_fields=['labels'])) 
+], p=1.0,  bbox_params=A.BboxParams(format='coco', min_area=0, min_visibility=0.8, 
+                                    label_fields=['labels_one', 'labels_five', 'labels_hpv'])) 
 
 test_transforms = A.Compose([
     A.Resize(MAX_IMAGE_SIZE, MAX_IMAGE_SIZE, p=1),
     A.HorizontalFlip(p=.001),
-], p=1.0,  bbox_params=A.BboxParams(format='coco', min_area=0, min_visibility=0.8, label_fields=['labels']))
+], p=1.0,  bbox_params=A.BboxParams(format='coco', min_area=0, min_visibility=0.8, 
+                                    label_fields=['labels_one', 'labels_five', 'labels_hpv']))
 
 def label_mapper(label) :
     label = str(label)
@@ -107,7 +110,14 @@ class PapsDetDataset(Dataset):
         self.df = self.df.sort_values('area', axis=0)
         self.df.reset_index(inplace=True, drop=False)
 
+        # abnormal or background
         self.df.label_det_one = self.df.label_det_one.apply(lambda x : int(1) )
+        
+        # bedesda 5 class except for Negative
+        self.df.label_det = self.df.label_det.apply(lambda x : label_id(x))        
+        
+        # HPV or not HPV or background
+        self.df['label_hpv'] = self.df.label.apply(lambda x : int(0) if 'HPV' in x else int(1) )
 
     def __len__(self):
         # return len(self.df)   
@@ -115,7 +125,9 @@ class PapsDetDataset(Dataset):
     
     def __getitem__(self, idx):
         index = self.df[self.df['ID'] == idx].index.values
-        label = self.df.loc[index].label_det_one.values
+        label_one = self.df.loc[index].label_det_one.values
+        label_five = self.df.loc[index].label_det.values
+        label_hpv = self.df.loc[index].label_hpv.values
         area = self.df.loc[index].area.values
         bbox = self.df.loc[index][['xmin', 'ymin', 'w', 'h']].values
 
@@ -124,10 +136,16 @@ class PapsDetDataset(Dataset):
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         
         if self.transform:
-            timage = self.transform(image=image, bboxes=list(bbox), labels=label)
+            timage = self.transform(image=image, bboxes=list(bbox), 
+                                    labels_one=label_one,
+                                    labels_five=label_five,
+                                    labels_hpv=label_hpv
+                                   )
             image = timage['image']
             bbox = np.array(timage['bboxes'])
-            label = timage['labels']
+            label_one = timage['labels_one']
+            label_five = timage['labels_five']
+            label_hpv = timage['labels_hpv']
         
         # retinanet use xmin, ymin, xmax, ymax
         if len(bbox) > 0 :
@@ -143,8 +161,10 @@ class PapsDetDataset(Dataset):
         iscrowd = torch.zeros((len(index)), dtype=torch.int64)
         target = {}
         target['boxes'] = torch.as_tensor(bbox, dtype=torch.float32)
-        target['category_id'] = torch.as_tensor(label, dtype=torch.long) 
-        target['labels'] = torch.as_tensor(label, dtype=torch.long) 
+        # target['category_id'] = torch.as_tensor(label, dtype=torch.long) 
+        target['labels'] = torch.as_tensor(label_one, dtype=torch.long) 
+        target['labels_five'] = torch.as_tensor(label_five, dtype=torch.long) 
+        target['labels_hpv'] = torch.as_tensor(label_hpv, dtype=torch.long) 
         target["image_id"] = torch.as_tensor(idx, dtype=torch.long)
         target["area"] = torch.as_tensor(area , dtype=torch.float32) 
         target["iscrowd"] = iscrowd   
