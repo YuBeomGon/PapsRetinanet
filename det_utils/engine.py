@@ -28,13 +28,14 @@ def train_one_epoch(self, optimizer, epoch, scheduler, scaler=None):
 
         loss_value = losses_reduced.item()
 
-        if not math.isfinite(loss_value):
-            print(f"Loss is {loss_value}, stopping training")
-            print(loss_dict_reduced)
-            sys.exit(1)
+        # if not math.isfinite(loss_value):
+        #     print(f"Loss is {loss_value}, stopping training")
+        #     print(loss_dict_reduced)
+        #     sys.exit(1)
 
         optimizer.zero_grad()
         self.backward(losses)
+        torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.)
         optimizer.step()
         scheduler.step()
 
