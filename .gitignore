@@ -2,6 +2,7 @@
 */.ipynb_checkpoints/*
 */*/.ipynb_checkpoints/*
 lbp_data/patch_images
+lbp_data/patch_images1
 lbp_data/patch_images/*
 lightning_logs/*
 */__pycache__/*
@@ -20,4 +21,5 @@ wandb/*
 backup/*
 vision/*
 prepare_data/annotations/*.xml
+prepare_data/annotations/
 prepare_data/saved/*
