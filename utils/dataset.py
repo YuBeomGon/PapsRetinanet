@@ -151,3 +151,57 @@ class PapsDetDataset(Dataset):
         
         return image, target
     
+class PapsClsDataset(Dataset):
+    def __init__(self, df, defaultpath='../lbp_data/', transform=None):
+        self.df = df
+        self.num_classes = 1 # one class detection, Abnormal
+        self.image_mean = np.array([0.485, 0.456, 0.406])
+        self.image_std = np.array([0.229, 0.224, 0.225])
+        print(self.df.shape)
+        
+        self.transform = transform
+        self.dir = defaultpath
+        
+        # sorting by size, batch should be consider size for compute efficiency and performance
+        # I think batchnorm will be affected if image with lots of padding, therefore
+        # custom sampler should check area
+        self.df = self.df.sort_values('area', axis=0)
+        self.df.reset_index(inplace=True, drop=False)
+
+        self.df.label_cls = self.df.label_cls.apply(lambda x : label_id(x))
+
+    def __len__(self): 
+        return len(self.df)
+    
+    def __getitem__(self, idx):
+        label = self.df.loc[idx]['label_cls']
+        area = self.df.loc[idx]['area']
+        bbox = self.df.loc[idx][['xmin', 'ymin', 'w', 'h']].values
+
+        path = self.df.loc[idx]['file_name']
+        image = cv2.imread(self.dir + path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        if self.transform:
+            timage = self.transform(image=image, bboxes=[bbox], labels=[label])
+            image = timage['image']
+            bbox = np.array(timage['bboxes'])
+            label = timage['labels']
+
+        # retinanet use xmin, ymin, xmax, ymax
+        if len(bbox) > 0 :
+            bbox[:,2] += bbox[:,0]
+            bbox[:,3] += bbox[:,1]
+            bbox = np.insert(bbox, 0, 1, axis=1)
+            
+        bbox = torch.as_tensor(bbox, dtype=torch.float32)
+        label = torch.as_tensor(label, dtype=torch.long) 
+            
+        image = image/255.
+        image = (image - self.image_mean[None, None, :]) / self.image_std[None, None:, ]
+        # image = image.permute(2,0,1)        
+        image = np.transpose(image, (2,0,1))
+        image = torch.tensor(image, dtype=torch.float32)
+        
+        return image, bbox, label    
+    
