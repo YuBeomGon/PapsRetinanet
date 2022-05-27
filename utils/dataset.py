@@ -126,7 +126,7 @@ class PapsDetDataset(Dataset):
             label = timage['labels']
             
         image = image/255.
-        image = (image - self.image_mean[None, None, :]) / self.image_std[None, None:, ]
+        image = (image - self.image_mean[None, None, :]) / self.image_std[None, None, :]
         # image = image.permute(2,0,1)        
         image = np.transpose(image, (2,0,1))
         image = torch.tensor(image, dtype=torch.float32)
@@ -184,7 +184,7 @@ class PapsClsDataset(Dataset):
             label = timage['labels']
             
         if len(bbox) == 0 :
-            return None, None, None
+            return None
         
         return image, bbox, label    
     
