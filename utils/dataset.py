@@ -19,19 +19,11 @@ from pytorch_lightning import LightningDataModule
 import torch.nn as nn
 import torch.nn.functional as F
 
-# IMAGE_SIZE = 448
-# IMAGE_SIZE = 224
-# box more than this size, crop it
-# if backbone is swin, size should be selected carefully
 MAX_IMAGE_SIZE = 2048
-
-# adaptive resizing threshold for small image
-# if area( geometric mean of W*H is smaller than this, resize in some range (1, 1.5)
-SMALL_IMAGE_SIZE = 100.
 range_limit = 0.5 # range(1, 1 + range limit)
 
 train_transforms = A.Compose([
-    # A.RandomScale(scale_limit=.05, p=0.7),
+    A.RandomScale(scale_limit=.05, p=0.7),
     A.Resize(MAX_IMAGE_SIZE, MAX_IMAGE_SIZE, p=1),
     A.OneOf([
         A.HorizontalFlip(p=.8),
@@ -44,17 +36,17 @@ train_transforms = A.Compose([
         A.transforms.RGBShift(r_shift_limit=20, g_shift_limit=20, b_shift_limit=20, p=0.8)
         ]
     )
-], p=1.0,  bbox_params=A.BboxParams(format='coco', min_area=0, min_visibility=0.8, label_fields=['labels'])) 
+], p=1.0,  bbox_params=A.BboxParams(format='pascal_voc', min_area=0, min_visibility=0.8, label_fields=['labels'])) 
 
 val_transforms = A.Compose([
     A.Resize(MAX_IMAGE_SIZE, MAX_IMAGE_SIZE, p=1),
     A.HorizontalFlip(p=.001),
-], p=1.0,  bbox_params=A.BboxParams(format='coco', min_area=0, min_visibility=0.8, label_fields=['labels'])) 
+], p=1.0,  bbox_params=A.BboxParams(format='pascal_voc', min_area=0, min_visibility=0.8, label_fields=['labels'])) 
 
 test_transforms = A.Compose([
     A.Resize(MAX_IMAGE_SIZE, MAX_IMAGE_SIZE, p=1),
     A.HorizontalFlip(p=.001),
-], p=1.0,  bbox_params=A.BboxParams(format='coco', min_area=0, min_visibility=0.8, label_fields=['labels']))
+], p=1.0,  bbox_params=A.BboxParams(format='pascal_voc', min_area=0, min_visibility=0.8, label_fields=['labels']))
 
 def label_mapper(label) :
     label = str(label)
@@ -108,6 +100,10 @@ class PapsDetDataset(Dataset):
         self.df.reset_index(inplace=True, drop=False)
 
         self.df.label_det_one = self.df.label_det_one.apply(lambda x : int(1) )
+        
+        # retinanet use xmin, ymin, xmax, ymax
+        self.df['xmax'] = self.df.apply(lambda x : x['min'] + x['w'], axis=1)
+        self.df['ymax'] = self.df.apply(lambda x : x['yin'] + x['h'], axis=1)        
 
     def __len__(self):
         # return len(self.df)   
@@ -117,7 +113,7 @@ class PapsDetDataset(Dataset):
         index = self.df[self.df['ID'] == idx].index.values
         label = self.df.loc[index].label_det_one.values
         area = self.df.loc[index].area.values
-        bbox = self.df.loc[index][['xmin', 'ymin', 'w', 'h']].values
+        bbox = self.df.loc[index][['xmin', 'ymin', 'xmax', 'ymax']].values
 
         path = self.df.loc[index].file_name.values[0]
         image = cv2.imread(self.dir + path)
@@ -128,11 +124,6 @@ class PapsDetDataset(Dataset):
             image = timage['image']
             bbox = np.array(timage['bboxes'])
             label = timage['labels']
-        
-        # retinanet use xmin, ymin, xmax, ymax
-        if len(bbox) > 0 :
-            bbox[:,2] += bbox[:,0]
-            bbox[:,3] += bbox[:,1]
             
         image = image/255.
         image = (image - self.image_mean[None, None, :]) / self.image_std[None, None:, ]
@@ -169,6 +160,10 @@ class PapsClsDataset(Dataset):
         self.df.reset_index(inplace=True, drop=False)
 
         self.df.label_cls = self.df.label_cls.apply(lambda x : label_id(x))
+        
+        # retinanet use xmin, ymin, xmax, ymax
+        self.df['xmax'] = self.df.apply(lambda x : x['min'] + x['w'], axis=1)
+        self.df['ymax'] = self.df.apply(lambda x : x['yin'] + x['h'], axis=1)
 
     def __len__(self): 
         return len(self.df)
@@ -176,7 +171,7 @@ class PapsClsDataset(Dataset):
     def __getitem__(self, idx):
         label = self.df.loc[idx]['label_cls']
         area = self.df.loc[idx]['area']
-        bbox = self.df.loc[idx][['xmin', 'ymin', 'w', 'h']].values
+        bbox = self.df.loc[idx][['xmin', 'ymin', 'xmax', 'ymax']].values
 
         path = self.df.loc[idx]['file_name']
         image = cv2.imread(self.dir + path)
@@ -187,21 +182,9 @@ class PapsClsDataset(Dataset):
             image = timage['image']
             bbox = np.array(timage['bboxes'])
             label = timage['labels']
-
-        # retinanet use xmin, ymin, xmax, ymax
-        if len(bbox) > 0 :
-            bbox[:,2] += bbox[:,0]
-            bbox[:,3] += bbox[:,1]
-            # bbox = np.insert(bbox, 0, 1, axis=1)
             
-        bbox = torch.as_tensor(bbox, dtype=torch.float32)
-        label = torch.as_tensor(label, dtype=torch.long) 
-            
-        image = image/255.
-        image = (image - self.image_mean[None, None, :]) / self.image_std[None, None:, ]
-        # image = image.permute(2,0,1)        
-        image = np.transpose(image, (2,0,1))
-        image = torch.tensor(image, dtype=torch.float32)
+        if len(bbox) == 0 :
+            return None, None, None
         
         return image, bbox, label    
     
