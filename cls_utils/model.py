@@ -29,6 +29,20 @@ class PapsClassificationModel(nn.Module):
         intermdeiate_channels = in_features//4
         self.mlp = TwoMLPHead(in_features, intermdeiate_channels, self.num_classes)   
         
+        for m in self.interlayer.modules():
+            self.init_layer(m)
+                
+        for m in self.mlp.modules():
+            self.init_layer(m)
+                
+    def init_layer(self, m) :
+        if isinstance(m, nn.Conv2d):
+            nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+        elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
+            nn.init.constant_(m.weight, 1)
+            nn.init.constant_(m.bias, 0)          
+                
+        
     def forward(self, x, boxes):
         batch_size = x.shape[0]
         x = self.model(x)
