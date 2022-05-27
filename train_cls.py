@@ -34,7 +34,7 @@ from pytorch_lightning.plugins import DDPPlugin
 from utils.dataset import PapsClsDataset, train_transforms, val_transforms, test_transforms, MAX_IMAGE_SIZE
 from utils.collate import collate_fn
 # from utils.sampler_by_group import GroupedBatchSampler, create_area_groups
-# from utils.losses import SupConLoss, FocalLoss
+from utils.losses import SupConLoss, FocalLoss
 
 # from cls_utils.block import Bottleneck, TwoMLPHead, RoIPool
 from cls_utils.model import PapsClassificationModel
@@ -109,8 +109,8 @@ class PapsClsModel(LightningModule) :
         # get just top feature map only
         self.model = PapsClassificationModel(self.arch, self.pretrained, self.num_classes)
         
-        self.criterion = nn.CrossEntropyLoss()
-        # self.criterion = FocalLoss()
+        # self.criterion = nn.CrossEntropyLoss()
+        self.criterion = FocalLoss()
             
         print("=> creating model '{}'".format(self.arch))
         self.train_dataset: Optional[Dataset] = None

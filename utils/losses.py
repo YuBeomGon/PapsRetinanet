@@ -1,14 +1,15 @@
+
 """
 Author: Yonglong Tian (yonglong@mit.edu)
 Date: May 07, 2020
 """
+from __future__ import print_function
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from __future__ import print_function
-# from ..utils import _log_api_usage_once
 
+# from ..utils import _log_api_usage_once
 
 def sigmoid_focal_loss(
     inputs: torch.Tensor,
@@ -55,17 +56,6 @@ def sigmoid_focal_loss(
         loss = loss.sum()
 
     return loss
-
-
-"""
-Author: Yonglong Tian (yonglong@mit.edu)
-Date: May 07, 2020
-"""
-from __future__ import print_function
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 # https://github.com/HobbitLong/SupContrast/blob/master/losses.py
 class SupConLoss(nn.Module):
