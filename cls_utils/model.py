@@ -27,13 +27,19 @@ class PapsClassificationModel(nn.Module):
         self.roi_pool = RoIPool((1,1), float(1/32)) # float(1/32), boxes is not normalized
         
         intermdeiate_channels = in_features//4
-        self.mlp = TwoMLPHead(in_features, intermdeiate_channels, self.num_classes)   
+        self.mlp1 = TwoMLPHead(in_features, intermdeiate_channels, self.num_classes)   
+        self.mlp2 = TwoMLPHead(in_features, intermdeiate_channels, self.num_classes)  
+        
+        self.maxpool = nn.MaxPool1d(2, stride=2)
         
         for m in self.interlayer.modules():
             self.init_layer(m)
                 
-        for m in self.mlp.modules():
+        for m in self.mlp1.modules():
             self.init_layer(m)
+            
+        for m in self.mlp2.modules():
+            self.init_layer(m)            
                 
     def init_layer(self, m) :
         if isinstance(m, nn.Conv2d):
@@ -51,7 +57,11 @@ class PapsClassificationModel(nn.Module):
         boxes = [ b.squeeze(dim=0) for b in torch.split(boxes, 1, dim=0)]
         
         roi = self.roi_pool(x, boxes)
-        outputs = self.mlp(roi)
+        output1 = self.mlp1(roi)
+        output2 = self.mlp2(roi)
+        
+        outputs = torch.stack([output1, output2], dim=2)
+        outputs = self.maxpool(outputs).squeeze(dim=-1)
         
         return outputs
 
