@@ -162,8 +162,8 @@ class PapsClsDataset(Dataset):
         self.df.label_cls = self.df.label_cls.apply(lambda x : label_id(x))
         
         # retinanet use xmin, ymin, xmax, ymax
-        self.df['xmax'] = self.df.apply(lambda x : x['min'] + x['w'], axis=1)
-        self.df['ymax'] = self.df.apply(lambda x : x['yin'] + x['h'], axis=1)
+        self.df['xmax'] = self.df.apply(lambda x : x['xmin'] + x['w'], axis=1)
+        self.df['ymax'] = self.df.apply(lambda x : x['ymin'] + x['h'], axis=1)
 
     def __len__(self): 
         return len(self.df)
