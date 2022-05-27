@@ -186,6 +186,7 @@ class FocalLoss(nn.Module):
         self.loss = F.cross_entropy
 
     def forward(self, inputs, targets):
+        # Predicted unnormalized scores (often referred to as logits) for cross_entropy function
         CE_loss = self.loss(inputs, targets, reduce=False)
         pt = torch.exp(-CE_loss)
         F_loss = self.alpha * (1-pt)**self.gamma * CE_loss     
