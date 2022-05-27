@@ -46,8 +46,16 @@ class PapsClassificationModel(nn.Module):
     def forward(self, x, boxes):
         batch_size = x.shape[0]
         x = self.model(x)
-        x = self.interlayer(x)        
+        x = self.interlayer(x)   
         
+        boxes = [ b.squeeze(dim=0) for b in torch.split(boxes, 1, dim=0)]
+        
+        roi = self.roi_pool(x, boxes)
+        outputs = self.mlp(roi)
+        
+        return outputs
+
+        '''
         roi_list = []
         
         for i in range(batch_size) :
@@ -56,4 +64,5 @@ class PapsClassificationModel(nn.Module):
             
         roi_all = torch.cat(roi_list, dim=0)
         outputs = self.mlp(roi_all)  
-        return outputs        
+        return outputs   
+        '''
