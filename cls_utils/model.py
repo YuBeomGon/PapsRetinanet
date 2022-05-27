@@ -37,7 +37,7 @@ class PapsClassificationModel(nn.Module):
         roi_list = []
         
         for i in range(batch_size) :
-            roi = self.roi_pool(x[i].unsqueeze(dim=0), boxes[i])
+            roi = self.roi_pool(x[i].unsqueeze(dim=0), [boxes[i]])
             roi_list.append(roi)
             
         roi_all = torch.cat(roi_list, dim=0)

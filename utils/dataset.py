@@ -192,7 +192,7 @@ class PapsClsDataset(Dataset):
         if len(bbox) > 0 :
             bbox[:,2] += bbox[:,0]
             bbox[:,3] += bbox[:,1]
-            bbox = np.insert(bbox, 0, 1, axis=1)
+            # bbox = np.insert(bbox, 0, 1, axis=1)
             
         bbox = torch.as_tensor(bbox, dtype=torch.float32)
         label = torch.as_tensor(label, dtype=torch.long) 
