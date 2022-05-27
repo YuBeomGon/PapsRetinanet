@@ -38,6 +38,7 @@ from utils.collate import collate_fn
 
 # from cls_utils.block import Bottleneck, TwoMLPHead, RoIPool
 from cls_utils.model import PapsClassificationModel
+from utils.collate import collate_fn
 
 
 # import custom_models
@@ -50,7 +51,7 @@ parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
                     help='model architecture: (default: resnet18)')
 parser.add_argument('-j', '--workers', default=2, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
-parser.add_argument('--epochs', default=90, type=int, metavar='N',
+parser.add_argument('--epochs', default=15, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('-b', '--batch-size', default=5, type=int,
                     metavar='N',
@@ -123,22 +124,6 @@ class PapsClsModel(LightningModule) :
         self.train_transforms = train_transforms
         self.val_transforms = val_transforms
         self.test_transforms = test_transforms
-        
-        '''
-        for m in self.interlayer.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)        
-                
-        for m in self.mlp.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-            elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)     
-        '''
         
     def forward(self, x, boxes) :
         x = self.model(x, boxes)
@@ -295,6 +280,7 @@ class PapsClsModel(LightningModule) :
             batch_size=self.batch_size, # batch_size is decided in sampler
             shuffle=True,
             # batch_sampler=self.train_sampler,
+            collate_fn=collate_fn,
             num_workers=self.workers,
             # pin_memory=True,
             # drop_last=True
@@ -304,6 +290,7 @@ class PapsClsModel(LightningModule) :
         return torch.utils.data.DataLoader(
             dataset=self.eval_dataset,
             batch_size=self.batch_size,
+            collate_fn=collate_fn,
             num_workers=self.workers,
             # pin_memory=True
         )
