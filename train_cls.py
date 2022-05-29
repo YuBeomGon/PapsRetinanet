@@ -39,6 +39,7 @@ from utils.losses import SupConLoss, FocalLoss
 # from cls_utils.block import Bottleneck, TwoMLPHead, RoIPool
 from cls_utils.model import PapsClassificationModel
 from utils.collate import collate_fn
+from utils.sampler import get_weight_random_sampler
 
 
 # import custom_models
@@ -109,8 +110,8 @@ class PapsClsModel(LightningModule) :
         # get just top feature map only
         self.model = PapsClassificationModel(self.arch, self.pretrained, self.num_classes)
         
-        # self.criterion = nn.CrossEntropyLoss()
-        self.criterion = FocalLoss()
+        self.criterion = nn.CrossEntropyLoss()
+        # self.criterion = FocalLoss()
             
         print("=> creating model '{}'".format(self.arch))
         self.train_dataset: Optional[Dataset] = None
@@ -268,6 +269,7 @@ class PapsClsModel(LightningModule) :
             
         #train_sampler = torch.utils.data.distributed.DistributedSampler(self.train_dataset)  
         # self.train_sampler = torch.utils.data.RandomSampler(self.train_dataset)
+        self.train_sampler = get_weight_random_sampler(self.train_dataset)
         
         test_df = pd.read_csv(self.data_path + '/test.csv')
         self.eval_dataset = PapsClsDataset(test_df, defaultpath=self.data_path, transform=self.test_transforms)         
@@ -278,8 +280,8 @@ class PapsClsModel(LightningModule) :
         return torch.utils.data.DataLoader(
             dataset=self.train_dataset,
             batch_size=self.batch_size, # batch_size is decided in sampler
-            shuffle=True,
-            # batch_sampler=self.train_sampler,
+            shuffle=False,
+            sampler=self.train_sampler,
             collate_fn=collate_fn,
             num_workers=self.workers,
             # pin_memory=True,
@@ -357,6 +359,7 @@ if __name__ == "__main__":
         logger = [logger_tb, logger_wandb],
         benchmark = True,
         strategy = "ddp",
+        replace_sampler_ddp=False,
         # gpus=[1],
         )
     
