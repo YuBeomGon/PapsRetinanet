@@ -18,12 +18,13 @@ from torch.utils.data import Dataset, DataLoader
 from pytorch_lightning import LightningDataModule
 import torch.nn as nn
 import torch.nn.functional as F
+from PIL import Image
 
 MAX_IMAGE_SIZE = 2048
 range_limit = 0.5 # range(1, 1 + range limit)
 
 train_transforms = A.Compose([
-    A.RandomScale(scale_limit=.05, p=0.7),
+    # A.RandomScale(scale_limit=.05, p=0.7),
     A.Resize(MAX_IMAGE_SIZE, MAX_IMAGE_SIZE, p=1),
     A.OneOf([
         A.HorizontalFlip(p=.8),
@@ -32,7 +33,6 @@ train_transforms = A.Compose([
     ),
     A.OneOf([
         A.transforms.ColorJitter(brightness=0.1, contrast=0.1, saturation=0.1, hue=0.1, p=.8),
-        A.ToGray(p=0.2),
         A.transforms.RGBShift(r_shift_limit=20, g_shift_limit=20, b_shift_limit=20, p=0.8)
         ]
     )
@@ -130,6 +130,7 @@ class PapsDetDataset(Dataset):
         # image = image.permute(2,0,1)        
         image = np.transpose(image, (2,0,1))
         image = torch.tensor(image, dtype=torch.float32)
+        print(image.shape)
 
         iscrowd = torch.zeros((len(index)), dtype=torch.int64)
         target = {}
@@ -176,6 +177,11 @@ class PapsClsDataset(Dataset):
         path = self.df.loc[idx]['file_name']
         image = cv2.imread(self.dir + path)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # it takes more time than cv2
+        # image = Image.open(self.dir + path)
+        # image = image.convert("RGB")
+        # image = np.array(image)
         
         if self.transform:
             timage = self.transform(image=image, bboxes=[bbox], labels=[label])
