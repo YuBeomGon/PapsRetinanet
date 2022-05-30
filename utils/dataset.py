@@ -102,8 +102,8 @@ class PapsDetDataset(Dataset):
         self.df.label_det_one = self.df.label_det_one.apply(lambda x : int(1) )
         
         # retinanet use xmin, ymin, xmax, ymax
-        self.df['xmax'] = self.df.apply(lambda x : x['min'] + x['w'], axis=1)
-        self.df['ymax'] = self.df.apply(lambda x : x['yin'] + x['h'], axis=1)        
+        self.df['xmax'] = self.df.apply(lambda x : x['xmin'] + x['w'], axis=1)
+        self.df['ymax'] = self.df.apply(lambda x : x['ymin'] + x['h'], axis=1)        
 
     def __len__(self):
         # return len(self.df)   
@@ -130,7 +130,6 @@ class PapsDetDataset(Dataset):
         # image = image.permute(2,0,1)        
         image = np.transpose(image, (2,0,1))
         image = torch.tensor(image, dtype=torch.float32)
-        print(image.shape)
 
         iscrowd = torch.zeros((len(index)), dtype=torch.int64)
         target = {}

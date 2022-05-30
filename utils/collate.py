@@ -17,3 +17,6 @@ def collate_fn(batch):
     labels = torch.tensor([b[2] for b in batch if b != None], dtype=torch.long)
     
     return images, boxes, labels
+
+def det_collate_fn(batch) :
+    return tuple(zip(*batch))

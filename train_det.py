@@ -32,7 +32,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, Learning
 from pytorch_lightning.plugins import DDPPlugin
 
 from utils.dataset import PapsDetDataset, train_transforms, val_transforms, test_transforms, MAX_IMAGE_SIZE
-from utils.collate import collate_fn
+from utils.collate import det_collate_fn
 #from utils.sampler_by_group import GroupedBatchSampler, create_area_groups
 #from utils.losses import SupConLoss, FocalLoss
 
@@ -47,19 +47,19 @@ from det_utils.engine import train_one_epoch, evaluate
 parser = argparse.ArgumentParser(description='PyTorch Lightning ImageNet Training')
 parser.add_argument('--data_path', metavar='DIR', default='./lbp_data/',
                     help='path to dataset (default: ./lbp_data/)')
-parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet18',
+parser.add_argument('-a', '--arch', metavar='ARCH', default='resnet34',
                     help='model architecture: (default: resnet18)')
-parser.add_argument('-j', '--workers', default=2, type=int, metavar='N',
+parser.add_argument('-j', '--workers', default=12, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('--epochs', default=15, type=int, metavar='N',
                     help='number of total epochs to run')
-parser.add_argument('-b', '--batch-size', default=4, type=int,
+parser.add_argument('-b', '--batch-size', default=24, type=int,
                     metavar='N',
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
                          'using Data Parallel or Distributed Data Parallel')
 
-parser.add_argument('--lr', '--learning-rate', default=0.01, type=float,
+parser.add_argument('--lr', '--learning-rate', default=0.005, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
 
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
@@ -122,7 +122,7 @@ class PapsDetModel(LightningLite) :
                                                         batch_size=self.batch_size, # batch_size is decided in sampler
                                                         shuffle=True,
                                                         num_workers=self.workers,
-                                                        collate_fn=collate_fn,
+                                                        collate_fn=det_collate_fn,
                                                         # pin_memory=True,
                                                         # drop_last=True
                                                         )
@@ -133,7 +133,7 @@ class PapsDetModel(LightningLite) :
                                                         batch_size=self.batch_size, # batch_size is decided in sampler
                                                         shuffle=False,
                                                         num_workers=self.workers,
-                                                        collate_fn=collate_fn,
+                                                        collate_fn=det_collate_fn,
                                                         # pin_memory=True,
                                                         # drop_last=True
                                                         )
@@ -186,7 +186,7 @@ if __name__ == '__main__' :
         # devices = 1, # number of gpus
         # logger = [logger_tb, logger_wandb],
         strategy = "ddp",
-        gpus=[0],
+        # gpus=[0],
         ) 
     
     # PapsDetModel(accelerator='gpu', devices=-1).run(args)
