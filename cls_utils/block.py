@@ -208,12 +208,14 @@ class WindowAttention(nn.Module):
         return x
 
 class SparseAttnLayer(nn.Module):
-    def __init__(self, inplanes, planes,  norm_layer=nn.BatchNorm2d, islocal=True):
+    def __init__(self, inplanes, planes,  norm_layer=nn.BatchNorm2d, islocal=True, shift_size=0):
         super().__init__()
         self.midplanes = 512 # inplanes//4 if inplanes == 2048 else inplanes
         self.window_size = 8
         self.num_heads = self.midplanes//32
         self.islocal = islocal
+        self.shift_size = shift_size
+        self.input_resolution = (64,64)
         self.attn = WindowAttention(self.midplanes,  (self.window_size, self.window_size), self.num_heads)
         # self.H = self.W = None
         self.mlp = Mlp(in_features=self.midplanes, hidden_features=self.midplanes, act_layer=nn.GELU, drop=0.)
@@ -223,18 +225,58 @@ class SparseAttnLayer(nn.Module):
         self.drop_path_rate = 0.1
         self.drop_path = DropPath(self.drop_path_rate) if self.drop_path_rate > 0. else nn.Identity()
         
+        if self.shift_size > 0:
+            # calculate attention mask for SW-MSA
+            H, W = self.input_resolution
+            img_mask = torch.zeros((1, 1, H, W))  # 1 H W 1
+            h_slices = (slice(0, -self.window_size),
+                        slice(-self.window_size, -self.shift_size),
+                        slice(-self.shift_size, None))
+            w_slices = (slice(0, -self.window_size),
+                        slice(-self.window_size, -self.shift_size),
+                        slice(-self.shift_size, None))
+            cnt = 0
+            for h in h_slices:
+                for w in w_slices:
+                    img_mask[:, :, h, w] = cnt
+                    cnt += 1    
+                    
+            mask_windows = window_partition(img_mask, self.window_size)  # nW, window_size, window_size, 1
+            mask_windows = mask_windows.view(-1, self.window_size * self.window_size)
+            attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
+            attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
+        else:
+            attn_mask = None   
+            
+        self.register_buffer("attn_mask", attn_mask)
+        
     def forward(self, x) :
         shortcut = x
         x = self.norm1(x)
         B, C, H, W = x.shape
-        x_windows = window_partition(x, self.window_size, islocal=self.islocal)
+        
+        # cyclic shift
+        if self.shift_size > 0:
+            shifted_x = torch.roll(x, shifts=(-self.shift_size, -self.shift_size), dims=(2, 3))
+        else:
+            shifted_x = x            
+        
+        x_windows = window_partition(shifted_x, self.window_size, islocal=self.islocal)
         # x_windows = x_windows.view(-1, self.window_size * self.window_size, self.midplanes)
         
-        attn_windows = self.attn(x_windows)
+        attn_windows = self.attn(x_windows, mask=self.attn_mask)
         attn_windows = attn_windows.view(-1, self.window_size, self.window_size, self.midplanes)
-        x = window_reverse(attn_windows, self.window_size, H, W, islocal=self.islocal) # B, C, H, W
+        shifted_x = window_reverse(attn_windows, self.window_size, H, W, islocal=self.islocal) # B, C, H, W
+        
+        # reverse cyclic shift
+        if self.shift_size > 0:
+            x = torch.roll(shifted_x, shifts=(self.shift_size, self.shift_size), dims=(2, 3))
+        else:
+            x = shifted_x        
+        
         x = shortcut + self.drop_path(x)
         
+        # FFN
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         
         return x
@@ -243,16 +285,18 @@ class SparseAttnBlock(nn.Module) :
     def __init__(self, inplanes=512, planes=512,  norm_layer=nn.BatchNorm2d) :
         super().__init__()
         self.localattn1 = SparseAttnLayer(inplanes, planes,  norm_layer, islocal=True)
+        self.localattn2 = SparseAttnLayer(inplanes, planes,  norm_layer, islocal=True, shift_size=4)
         self.globalattn1 = SparseAttnLayer(inplanes, planes,  norm_layer, islocal=False)
         
-        self.localattn2 = SparseAttnLayer(inplanes, planes,  norm_layer, islocal=True)
-        self.globalattn2 = SparseAttnLayer(inplanes, planes,  norm_layer, islocal=False)  
+        self.localattn3 = SparseAttnLayer(inplanes, planes,  norm_layer, islocal=True)
+        self.localattn4 = SparseAttnLayer(inplanes, planes,  norm_layer, islocal=True, shift_size=4)  
         
     def forward(self, x) :
         x = self.localattn1(x)
-        x = self.globalattn1(x)
         x = self.localattn2(x)
-        x = self.globalattn2(x)
+        x = self.globalattn1(x)
+        x = self.localattn3(x)
+        x = self.localattn4(x)
         
         return x
 
@@ -278,7 +322,8 @@ class TwoMLPHead(nn.Module):
         x = self.fc2(x)
 
         return x
-    
+
+'''    
 class RoIPool(nn.Module):    
     """
     See :func:`roi_pool`.
@@ -297,4 +342,39 @@ class RoIPool(nn.Module):
         tmpstr += "output_size=" + str(self.output_size)
         tmpstr += ", spatial_scale=" + str(self.spatial_scale)
         tmpstr += ")"
-        return tmpstr    
+        return tmpstr 
+    
+
+class RoIAlign(nn.Module):
+    """
+    See :func:`roi_align`.
+    """
+
+    def __init__(
+        self,
+        output_size: BroadcastingList2[int],
+        spatial_scale: float,
+        sampling_ratio: int,
+        aligned: bool = False,
+    ):
+        super(RoIAlign, self).__init__()
+        self.output_size = output_size
+        self.spatial_scale = spatial_scale
+        self.sampling_ratio = sampling_ratio
+        self.aligned = aligned
+
+    def forward(self, input: Tensor, rois: Tensor) -> Tensor:
+        return roi_align(input, rois, self.output_size, self.spatial_scale, self.sampling_ratio, self.aligned)
+
+    def __repr__(self) -> str:
+        tmpstr = self.__class__.__name__ + "("
+        tmpstr += "output_size=" + str(self.output_size)
+        tmpstr += ", spatial_scale=" + str(self.spatial_scale)
+        tmpstr += ", sampling_ratio=" + str(self.sampling_ratio)
+        tmpstr += ", aligned=" + str(self.aligned)
+        tmpstr += ")"
+        return tmpstr
+'''        
+    
+    
+    
