@@ -24,6 +24,7 @@ class PapsClassificationModel(nn.Module):
         self.midplanes = 512
         
         self.model = timm.create_model(self.arch, pretrained=self.pretrained, num_classes=0, global_pool='')
+        backbone_state_dict = self.model.state_dict()
         in_features = timm.create_model(self.arch, pretrained=False, num_classes=self.num_classes).get_classifier().in_features 
         self.conv = nn.Conv2d(in_features, self.midplanes, kernel_size=1, stride=1, bias=False)
         
@@ -40,11 +41,14 @@ class PapsClassificationModel(nn.Module):
         self.mlp = TwoMLPHead(self.midplanes, self.midplanes, self.num_classes*self.pool_size)   
         self.maxpool = nn.MaxPool1d(self.pool_size, stride=self.pool_size)
         
+        # linear layer is initialized by default
         for m in self.modules():
             self.init_layer(m)  
             
         # load pretrained model
         if self.pretrained :
+            print('load pretrained model')
+            self.model.load_state_dict(backbone_state_dict)
             pass
                 
     def init_layer(self, m) :
