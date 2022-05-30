@@ -9,7 +9,9 @@ from datetime import datetime
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .block import Bottleneck, TwoMLPHead, RoIPool, SparseAttnBlock
+from .block import Bottleneck, TwoMLPHead, SparseAttnBlock
+from torchvision.ops.roi_pool import RoIPool
+from torchvision.ops.roi_align import RoIAlign
 
 
 class PapsClassificationModel(nn.Module):
@@ -31,13 +33,12 @@ class PapsClassificationModel(nn.Module):
         # use local + global attn block
         self.interlayer = SparseAttnBlock(self.midplanes, self.midplanes)
         
-        self.roi_pool = RoIPool((1,1), float(1/32)) # float(1/32), boxes is not normalized
+        # self.roi_pool = RoIPool((1,1), float(1/32)) # float(1/32), boxes is not normalized
+        self.roi_pool = RoIAlign((1,1), float(1/32), sampling_ratio=2)
 
-        self.fc1 = nn.Linear(self.midplanes, self.num_classes)   
-        self.fc2 = nn.Linear(self.midplanes, self.num_classes)  
-        self.fc3 = nn.Linear(self.midplanes, self.num_classes)  
-        
-        self.maxpool = nn.MaxPool1d(2, stride=2)
+        self.pool_size = 5
+        self.mlp = TwoMLPHead(self.midplanes, self.midplanes, self.num_classes*self.pool_size)   
+        self.maxpool = nn.MaxPool1d(self.pool_size, stride=self.pool_size)
         
         for m in self.modules():
             self.init_layer(m)  
@@ -65,14 +66,12 @@ class PapsClassificationModel(nn.Module):
         x = self.roi_pool(x, boxes)
 
         x = x.flatten(start_dim=1)
-        output1 = F.relu(self.fc1(x))
-        output2 = F.relu(self.fc2(x))
-        output3 = F.relu(self.fc3(x))
+        x = self.mlp(x)
         
-        outputs = torch.stack([output1, output2, output3], dim=2)
-        outputs = self.maxpool(outputs).squeeze(dim=-1)
+        # x = self.maxpool(x.view(batch_size, self.num_classes, -1)).squeeze(dim=-1)
+        x = self.maxpool(x)
         
-        return outputs
+        return x
 
         '''
         roi_list = []
