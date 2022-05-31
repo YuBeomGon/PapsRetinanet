@@ -24,3 +24,4 @@ prepare_data/annotations/*.xml
 prepare_data/annotations/
 prepare_data/saved/*
 vision/*
+*.ckpt

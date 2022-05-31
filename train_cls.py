@@ -54,7 +54,7 @@ parser.add_argument('-j', '--workers', default=2, type=int, metavar='N',
                     help='number of data loading workers (default: 4)')
 parser.add_argument('--epochs', default=15, type=int, metavar='N',
                     help='number of total epochs to run')
-parser.add_argument('-b', '--batch-size', default=5, type=int,
+parser.add_argument('-b', '--batch-size', default=4, type=int,
                     metavar='N',
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
@@ -98,7 +98,7 @@ class PapsClsModel(LightningModule) :
         self.data_path = data_path
         self.arch = arch
         self.pretrained = pretrained
-        self.lr = lr
+        self.learning_rate = lr
         self.momentum = momentum
         self.weight_decay = weight_decay
         self.batch_size = batch_size
@@ -241,13 +241,13 @@ class PapsClsModel(LightningModule) :
     def configure_optimizers(self) :
         # optimizer = optim.SGD(filter(lambda p: p.requires_grad, self.parameters()), 
         #                       lr=self.lr, momentum=self.momentum, weight_decay=self.weight_decay)
-        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, self.parameters()), lr=self.lr)
+        optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, self.parameters()), lr=self.learning_rate)
         
         # scheduler = lr_scheduler.LambdaLR(optimizer, lambda epoch : 0.1 **(epoch //30))
         scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, 
                                                         epochs              = self.epochs, 
                                                         steps_per_epoch     = int(len(self.train_dataset)/self.batch_size),
-                                                        max_lr              = self.lr, 
+                                                        max_lr              = self.learning_rate, 
                                                         pct_start           = 0.1, 
                                                         div_factor          = 100, 
                                                         final_div_factor    = 2e+4)   
@@ -338,6 +338,19 @@ if __name__ == "__main__":
     logger_tb = TensorBoardLogger('./tuning_logs' +'/' + args.arch, name=now)
     logger_wandb = WandbLogger(project='Paps_clf', name=now, mode='online') # online or disabled    
     
+    model = PapsClsModel(
+        data_path=args.data_path,
+        arch=args.arch,
+        pretrained=args.pretrained,
+        workers=args.workers,
+        lr = args.lr,
+        batch_size=args.batch_size,
+        weight_decay=args.weight_decay,
+        num_classes=args.num_classes,
+    )
+    
+    logger_wandb.watch(model, log_freq=100, log="all")    
+    
     trainer_defaults = dict(
         callbacks = [
             # the PyTorch example refreshes every 10 batches
@@ -360,18 +373,8 @@ if __name__ == "__main__":
         benchmark = True,
         strategy = "ddp",
         replace_sampler_ddp=False,
+        # auto_lr_find='learning_rate',
         # gpus=[1],
-        )
-    
-    model = PapsClsModel(
-        data_path=args.data_path,
-        arch=args.arch,
-        pretrained=args.pretrained,
-        workers=args.workers,
-        lr = args.lr,
-        batch_size=args.batch_size,
-        weight_decay=args.weight_decay,
-        num_classes=args.num_classes,
     )
     
     # path = detection path
@@ -385,6 +388,13 @@ if __name__ == "__main__":
     '''
      
     trainer = Trainer(**trainer_defaults)
+#     lr_finder = trainer.tuner.lr_find(model)
+#     fig = lr_finder.plot(suggest=True)
+#     fig.show()
+    
+#     print('suggested learning rate :', lr_finder.suggestion())
+#     model.hparams.learning_rate =lr_finder.suggestion()
+    
     trainer.fit(model)  
     
     trainer.test(model)
