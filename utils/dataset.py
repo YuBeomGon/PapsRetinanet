@@ -40,12 +40,12 @@ train_transforms = A.Compose([
 
 val_transforms = A.Compose([
     A.Resize(MAX_IMAGE_SIZE, MAX_IMAGE_SIZE, p=1),
-    A.HorizontalFlip(p=.001),
+    # A.HorizontalFlip(p=.001),
 ], p=1.0,  bbox_params=A.BboxParams(format='pascal_voc', min_area=0, min_visibility=0.8, label_fields=['labels'])) 
 
 test_transforms = A.Compose([
     A.Resize(MAX_IMAGE_SIZE, MAX_IMAGE_SIZE, p=1),
-    A.HorizontalFlip(p=.001),
+    # A.HorizontalFlip(p=.001),
 ], p=1.0,  bbox_params=A.BboxParams(format='pascal_voc', min_area=0, min_visibility=0.8, label_fields=['labels']))
 
 def label_mapper(label) :

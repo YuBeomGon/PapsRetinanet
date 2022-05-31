@@ -132,7 +132,7 @@ class PapsClsModel(LightningModule) :
     
     def training_step(self, batch, batch_idx) :
         images, boxes, labels = batch
-        labels = labels.squeeze()
+        labels = labels.squeeze(dim=-1)
         outputs = self(images, boxes)
         
         loss = self.criterion(outputs, labels)
@@ -182,7 +182,7 @@ class PapsClsModel(LightningModule) :
     
     def eval_step(self, batch, batch_idx, prefix: str) :
         images, boxes, labels = batch
-        labels = labels.squeeze()
+        labels = labels.squeeze(dim=-1)
         outputs = self(images, boxes)
         
         loss = self.criterion(outputs, labels)
